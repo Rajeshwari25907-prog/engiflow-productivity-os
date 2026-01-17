@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EngiFlow // Dynamic Weekly Sync</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; overflow: hidden; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+        .page-content { display: none; height: calc(100vh - 40px); overflow-y: auto; }
+        .page-content.active { display: block; }
+        
+        .matrix-header { display: grid; grid-template-columns: 140px repeat(6, 1fr); gap: 10px; margin-bottom: 10px; }
+        .matrix-row { display: grid; grid-template-columns: 140px repeat(6, 1fr); gap: 10px; margin-bottom: 8px; }
+        
+        .day-label { text-align: center; font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; }
+        .sector-label { font-size: 10px; font-weight: 700; color: #94a3b8; display: flex; align-items: center; }
+
+        .matrix-cell { 
+            height: 45px; border-radius: 6px; background: #1e293b; 
+            border: 1px solid rgba(255,255,255,0.05); cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .matrix-cell.active { 
+            background: #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.4); 
+            border-color: #60a5fa;
+        }
+        .matrix-cell:hover { border-color: #3b82f6; background: #334155; }
+
+        #report-lock { 
+            position: absolute; inset: 0; background: rgba(2, 6, 23, 0.98); 
+            z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="flex">
+
+    <aside class="w-64 glass h-screen flex flex-col p-6 border-r border-slate-800">
+        <div class="flex items-center gap-3 mb-10">
+            <i data-lucide="gauge" class="text-blue-500"></i>
+            <h1 class="font-bold tracking-tighter uppercase italic">EngiFlow <span class="text-blue-500">Sync</span></h1>
+        </div>
+        <nav class="space-y-2">
+            <button onclick="switchTab('matrix')" id="nav-matrix" class="w-full flex items-center gap-4 p-3 rounded-xl text-slate-400 hover:bg-slate-800 transition border-l-4 border-transparent">
+                <i data-lucide="edit-3" size="18"></i> Input Matrix
+            </button>
+            <button onclick="generateWeeklyReport()" id="nav-analytics" class="w-full flex items-center gap-4 p-3 rounded-xl text-slate-400 hover:bg-slate-800 transition border-l-4 border-transparent">
+                <i data-lucide="trending-up" size="18"></i> Performance
+            </button>
+        </nav>
+    </aside>
+
+    <main class="flex-1 p-8 relative">
+        
+        <section id="matrix" class="page-content active">
+            <div class="flex justify-between items-end mb-8">
+                <div>
+                    <h2 class="text-3xl font-bold">Weekly Log</h2>
+                    <p class="text-slate-500 text-sm italic">Click cells to document engineering effort per sector/day</p>
+                </div>
+                <button onclick="generateWeeklyReport()" class="bg-blue-600 hover:bg-blue-500 px-8 py-3 rounded-xl font-bold transition flex items-center gap-3 shadow-lg shadow-blue-500/30">
+                    Sync & View Data <i data-lucide="chevron-right" size="18"></i>
+                </button>
+            </div>
+
+            <div class="glass p-8 rounded-3xl">
+                <div class="matrix-header">
+                    <div></div>
+                    <div class="day-label">Mon</div>
+                    <div class="day-label">Tue</div>
+                    <div class="day-label">Wed</div>
+                    <div class="day-label">Thu</div>
+                    <div class="day-label">Fri</div>
+                    <div class="day-label">Sat</div>
+                </div>
+
+                <div id="matrix-body"></div>
+            </div>
+        </section>
+
+        <section id="analytics" class="page-content relative">
+            <div id="report-lock">
+                <i data-lucide="lock" size="40" class="text-slate-800 mb-4"></i>
+                <h3 class="text-lg font-bold text-slate-400">Sync Required</h3>
+                <p class="text-slate-600 mb-6 text-sm">Please update your weekly matrix first.</p>
+                <button onclick="switchTab('matrix')" class="bg-slate-800 px-6 py-2 rounded-lg text-sm hover:text-blue-400 transition">Return to Matrix</button>
+            </div>
+
+            <div id="analytics-content" class="opacity-0 transition-all duration-1000">
+                <h2 class="text-3xl font-bold mb-8">Dynamic Performance Yield</h2>
+                
+                <div class="grid grid-cols-3 gap-6 mb-8">
+                    <div class="glass p-6 rounded-2xl border-l-4 border-blue-500">
+                        <p class="text-[10px] font-bold text-slate-500 uppercase">Weekly Efficiency</p>
+                        <div class="text-4xl font-black mono" id="avg-output">0%</div>
+                    </div>
+                    <div class="glass p-6 rounded-2xl border-l-4 border-purple-500">
+                        <p class="text-[10px] font-bold text-slate-500 uppercase">Focus Peak Day</p>
+                        <div class="text-xl font-bold mono text-purple-400 uppercase" id="peak-day">N/A</div>
+                    </div>
+                    <div class="glass p-6 rounded-2xl border-l-4 border-emerald-500">
+                        <p class="text-[10px] font-bold text-slate-500 uppercase">Active Units</p>
+                        <div class="text-4xl font-black mono text-emerald-400" id="unit-count">0</div>
+                    </div>
+                </div>
+
+                <div class="glass p-8 rounded-3xl h-96">
+                    <canvas id="weeklyChart"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const sectors = ["Core Lectures", "Problem Sets", "Laboratory", "Project CAD", "Exam Review", "Technical Research"];
+        const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        let weeklyChart;
+
+        function initMatrix() {
+            const body = document.getElementById('matrix-body');
+            sectors.forEach((sector, sIdx) => {
+                const row = document.createElement('div');
+                row.className = 'matrix-row';
+                
+                const label = document.createElement('div');
+                label.className = 'sector-label';
+                label.innerText = sector;
+                row.appendChild(label);
+
+                for(let dIdx=0; dIdx<6; dIdx++) {
+                    const cell = document.createElement('div');
+                    cell.className = `matrix-cell day-col-${dIdx}`;
+                    cell.dataset.day = days[dIdx];
+                    cell.onclick = () => cell.classList.toggle('active');
+                    row.appendChild(cell);
+                }
+                body.appendChild(row);
+            });
+        }
+
+        function generateWeeklyReport() {
+            const activeCells = document.querySelectorAll('.matrix-cell.active');
+            
+            // Calculate Day-wise Data for the Graph
+            const dailyCounts = days.map((day, idx) => {
+                return document.querySelectorAll(`.matrix-cell.active.day-col-${idx}`).length;
+            });
+
+            // Logic: Peak Day
+            const maxVal = Math.max(...dailyCounts);
+            const peakIdx = dailyCounts.indexOf(maxVal);
+            const peakDayName = maxVal > 0 ? days[peakIdx] : "NONE";
+
+            // Logic: Total Yield
+            const totalCells = sectors.length * 6;
+            const yieldPercent = Math.round((activeCells.length / totalCells) * 100);
+
+            // Update UI
+            document.getElementById('report-lock').style.display = 'none';
+            document.getElementById('analytics-content').classList.remove('opacity-0');
+            document.getElementById('avg-output').innerText = yieldPercent + '%';
+            document.getElementById('unit-count').innerText = activeCells.length;
+            document.getElementById('peak-day').innerText = peakDayName;
+
+            switchTab('analytics');
+            renderWeeklyGraph(dailyCounts);
+        }
+
+        function renderWeeklyGraph(dataPoints) {
+            const ctx = document.getElementById('weeklyChart').getContext('2d');
+            if(weeklyChart) weeklyChart.destroy();
+
+            weeklyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+                    datasets: [{
+                        label: 'Hourly Intensity',
+                        data: dataPoints,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 8,
+                        pointHoverRadius: 10,
+                        pointBackgroundColor: '#3b82f6',
+                        borderWidth: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { 
+                            beginAtZero: true, 
+                            max: sectors.length,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { stepSize: 1, color: '#64748b' }
+                        },
+                        x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                    }
+                }
+            });
+        }
+
+        function switchTab(id) {
+            document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('nav button').forEach(b => {
+                b.classList.remove('bg-slate-800', 'text-white', 'border-blue-500');
+            });
+            
+            document.getElementById(id).classList.add('active');
+            document.getElementById('nav-' + id).classList.add('bg-slate-800', 'text-white', 'border-blue-500');
+            lucide.createIcons();
+        }
+
+        window.onload = () => {
+            initMatrix();
+            switchTab('matrix');
+        };
+    </script>
+</body>
+</html>
